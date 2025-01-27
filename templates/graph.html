@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <title>USDT Transaction Explorer</title>
+    <style>
+        /* Previous styles remain the same */
+        :root {
+            --primary: #6366f1;
+            --secondary: #a855f7;
+            --background: #0f172a;
+            --text: #e2e8f0;
+            --card: #1e293b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body {
+            background: var(--background);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            margin-bottom: 2rem;
+        }
+
+        #addressForm {
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 1rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #4b5563;
+            background: #2d3748;
+            color: var(--text);
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 1rem;
+        }
+
+        button {
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        #progress,
+        #completion,
+        #walletAnalysis {
+            background: var(--card);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        #walletAnalysis {
+            white-space: pre-line;
+            line-height: 1.6;
+            text-align: justify;
+        }
+
+        .analysis-loader {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            color: var(--text);
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid transparent;
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        #graph {
+            background: var(--card);
+            padding: 1rem;
+            border-radius: 1rem;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .node circle {
+            fill: url(#gradient);
+            stroke: var(--primary);
+            stroke-width: 2px;
+            transition: all 0.3s;
+            cursor: move;
+        }
+
+        .node:hover circle {
+            filter: brightness(1.2);
+        }
+
+        .node text {
+            fill: var(--text);
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .link {
+            stroke: #4b5563;
+            stroke-width: 2px;
+            opacity: 0.6;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #2d3748;
+            border-radius: 4px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+
+        .zoom-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 0.5rem;
+            background: var(--card);
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .zoom-controls button {
+            padding: 0.5rem;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .tooltip {
+            position: absolute;
+            padding: 8px 12px;
+            background: var(--card);
+            border: 1px solid var(--primary);
+            border-radius: 6px;
+            pointer-events: none;
+            font-size: 0.875rem;
+            z-index: 1000;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            transition: opacity 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .tooltip::before {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: var(--primary);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Transaction Explorer</h1>
+
+        <form id="addressForm">
+            <label for="address">Wallet Address</label>
+            <input type="text" id="address" name="address" placeholder="Enter wallet address (0x... or T...)" required>
+            <button type="submit">Generate Tree</button>
+        </form>
+
+        <div id="progress" style="display: none;">
+            <h3>Processing Transactions</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: 0%"></div>
+            </div>
+            <p style="margin-top: 1rem">Wallets Processed: <span id="walletsProcessed">0</span></p>
+        </div>
+
+        <div id="walletAnalysis" style="display: none;">
+            <h3>AI - Wallet Analysis</h3>
+            <div class="analysis-loader">
+                <div class="spinner"></div>
+                <p>Analyzing wallet behavior...</p>
+            </div>
+            <div id="analysisContent" style="display: none;"></div>
+        </div>
+
+        <div id="completion" style="display: none;">
+            <h3>Processing Complete</h3>
+            </br>
+            <button id="viewGraphBtn">View Transactions</button>
+        </div>
+
+        <div id="graph" style="display: none;">
+            <svg width="100%" height="800">
+                <defs>
+                    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color: var(--primary);" />
+                        <stop offset="100%" style="stop-color: var(--secondary);" />
+                    </linearGradient>
+                </defs>
+                <g class="zoom-container"></g>
+            </svg>
+            <div class="zoom-controls">
+                <button onclick="zoomAction('in')">+</button>
+                <button onclick="zoomAction('out')">-</button>
+                <button onclick="zoomAction('reset')">↺</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('addressForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            const address = document.getElementById('address').value;
+            const progressDiv = document.getElementById('progress');
+            const completionDiv = document.getElementById('completion');
+            const walletAnalysis = document.getElementById('walletAnalysis');
+
+            progressDiv.style.display = 'block';
+            completionDiv.style.display = 'none';
+            walletAnalysis.style.display = 'none';
+
+            // Determine blockchain type based on address prefix
+            const blockchainType = address.startsWith('T') ? 'tron' : 'erc20';
+            const endpoint = `/transaction-tree/erc20`;
+
+            const res = await fetch(`${endpoint}?address=${encodeURIComponent(address)}`);
+            const data = await res.json();
+
+            if (data.request_id) {
+                const requestId = data.request_id;
+                const progressInterval = setInterval(async function () {
+                    const progressRes = await fetch('/transaction-tree/progress?request_id=' + requestId);
+                    const progressData = await progressRes.json();
+
+                    if (progressData.progress) {
+                        const progress = parseInt(progressData.progress);
+                        document.querySelector('.progress-fill').style.width = progress + '%';
+                        document.getElementById('walletsProcessed').innerText = progressData.wallets_processed;
+                    }
+
+                    if (progressData.progress === "100%") {
+                        clearInterval(progressInterval);
+                        completionDiv.style.display = 'block';
+
+                        walletAnalysis.style.display = 'block';
+                        document.querySelector('.analysis-loader').style.display = 'flex';
+                        document.getElementById('analysisContent').style.display = 'none';
+
+                        try {
+                            const analysisRes = await fetch('/transaction-tree/get-ai-analysis?request_id=' + requestId);
+                            const analysisData = await analysisRes.json();
+
+                            document.querySelector('.analysis-loader').style.display = 'none';
+                            const analysisContent = document.getElementById('analysisContent');
+                            analysisContent.textContent = analysisData.ai_opinion;
+                            analysisContent.style.display = 'block';
+                        } catch (error) {
+                            document.querySelector('.analysis-loader').style.display = 'none';
+                            document.getElementById('analysisContent').textContent = 'Error loading analysis. Please try again.';
+                            document.getElementById('analysisContent').style.display = 'block';
+                        }
+                    }
+                }, 1000);
+
+                document.getElementById('viewGraphBtn').addEventListener('click', async function () {
+                    const resultRes = await fetch('/transaction-tree/result?request_id=' + requestId);
+                    const resultData = await resultRes.json();
+                    if (resultData.error) {
+                        alert(resultData.error);
+                    } else {
+                        document.getElementById('graph').style.display = 'block';
+                        drawTree(resultData, blockchainType);
+                    }
+                });
+            }
+        });
+
+        function transformData(data) {
+            if (!data.transactions || !Array.isArray(data.transactions)) {
+                return [];
+            }
+
+            return data.transactions.map(transaction => {
+                const children = transaction.subtree ? transformData(transaction.subtree) : [];
+                return {
+                    name: transaction.from,
+                    value: parseFloat(transaction.value) / (transaction.blockchain === 'tron' ? 1e6 : 1e18), // Convert from Sun/Wei to TRX/ETH
+                    children: children
+                };
+            });
+        }
+
+        let currentZoom = d3.zoomIdentity;
+
+        function drawTree(data, blockchainType) {
+            console.log(data)
+            const root = {
+                name: data.address,
+                value: 1,
+                children: transformData(data || []),
+                blockchain: blockchainType
+            };
+
+            // Rest of the drawTree function remains the same as before
+            const margin = { top: 40, right: 120, bottom: 40, left: 120 };
+            const width = window.innerWidth - margin.left - margin.right - 100;
+            const height = 800 - margin.top - margin.bottom;
+
+            const svg = d3.select("#graph svg");
+            svg.selectAll("*").remove();
+            svg.append("defs")
+                .append("linearGradient")
+                .attr("id", "gradient")
+                .attr("x1", "0%").attr("y1", "0%")
+                .attr("x2", "100%").attr("y2", "0%")
+                .selectAll("stop")
+                .data([
+                    { offset: "0%", color: "#6366f1" },
+                    { offset: "100%", color: "#a855f7" }
+                ])
+                .enter().append("stop")
+                .attr("offset", d => d.offset)
+                .attr("stop-color", d => d.color);
+
+            const g = svg.append("g")
+                .attr("class", "zoom-container")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            const tree = d3.tree().size([height, width]);
+            const rootNode = d3.hierarchy(root);
+
+            // Calculate maxValue excluding the root node
+            const maxValue = d3.max(rootNode.descendants().slice(1), d => {
+                const value = parseFloat(d.data.value) || 0;
+                return value * 1e18;
+            });
+
+            // Modified radius scale
+            const radiusScale = d3.scaleLinear()
+                .domain([0, maxValue])
+                .range([5, 25]);
+
+            tree(rootNode);
+
+            const links = g.selectAll(".link")
+                .data(rootNode.links())
+                .enter()
+                .append("path")
+                .attr("class", "link")
+                .attr("d", d3.linkHorizontal()
+                    .x(d => d.y)
+                    .y(d => d.x));
+
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            // Modified nodes selection with proper radius scaling
+            const nodes = g.selectAll(".node")
+                .data(rootNode.descendants())
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d.y},${d.x})`);
+
+            // Add circles with proper radius
+            nodes.append("circle")
+                .attr("r", d => {
+                    if (d === rootNode) return 10; // Fixed size for root node
+                    const value = parseFloat(d.data.value) || 0;
+                    return radiusScale(value * 1e18);
+                })
+                .attr("fill", "url(#gradient)")
+                .attr("stroke", "#4338ca")
+                .attr("stroke-width", "2px");
+
+            // Modified mouseover event
+            nodes.on("mouseover", function (event, d) {
+                const value = d === rootNode ? "" : ((parseFloat(d.data.value) * 1e18) || 0).toFixed(4);
+                const currency = document.getElementById('address').value.startsWith("T") ? 'TRX' : 'ETH';
+                const address = d.data.name;
+                const tooltipContent = d === rootNode ?
+                    `Address: ${address}` :
+                    `Address: ${address}<br>Value: ${value} ${currency}`;
+
+                tooltip.transition()
+                    .duration(200)
+                    .style("opacity", 1);
+                tooltip.html(tooltipContent)
+                    .style("left", (event.pageX + 10) + "px")
+                    .style("top", (event.pageY - 28) + "px");
+                d3.select(this).select("circle")
+                    .style("filter", "brightness(1.2)")
+                    .style("stroke-width", "3px");
+            })
+                .on("mousemove", function (event) {
+                    tooltip.style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function () {
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                    d3.select(this).select("circle")
+                        .style("filter", null)
+                        .style("stroke-width", "2px");
+                });
+
+            // Add circles with hover styles
+            nodes.append("circle")
+                .attr("r", d => radiusScale(d.data.value || 1))
+                .style("transition", "all 0.2s ease");
+
+
+            // Add circles
+            nodes.append("circle")
+                .attr("r", d => radiusScale(d.data.value || 1));
+
+            // Add labels
+            nodes.append("text")
+                .attr("dy", "0.31em")
+                .attr("x", d => d.children ? -8 : 8)
+                .attr("text-anchor", d => d.children ? "end" : "start")
+                .text(d => d.data.name.slice(0, 6) + "...")
+                .clone(true).lower()
+                .attr("stroke", "var(--background)")
+                .attr("stroke-width", 3);
+
+            // Add zoom behavior
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on("zoom", (event) => {
+                    currentZoom = event.transform;
+                    g.attr("transform",
+                        `translate(${event.transform.x + margin.left},${event.transform.y + margin.top}) scale(${event.transform.k})`
+                    );
+                });
+
+            svg.call(zoom);
+
+            // Add drag behavior
+            const drag = d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended);
+
+            nodes.call(drag);
+
+            function dragstarted(event) {
+                d3.select(this).raise().classed("active", true);
+            }
+
+            function dragged(event, d) {
+                const dx = event.dx / currentZoom.k;
+                const dy = event.dy / currentZoom.k;
+
+                d.x += dy;
+                d.y += dx;
+
+                d3.select(this)
+                    .attr("transform", `translate(${d.y},${d.x})`);
+
+                links
+                    .filter(l => l.source === d || l.target === d)
+                    .attr("d", d3.linkHorizontal()
+                        .x(d => d.y)
+                        .y(d => d.x));
+            }
+
+            function dragended(event, d) {
+                d3.select(this).classed("active", false);
+            }
+
+            // Store zoom object and initial transform
+            svg.node().__zoom = zoom;
+            svg.node().__initialTransform = d3.zoomIdentity
+                .translate(margin.left, margin.top)
+                .scale(1);
+
+            // Initial zoom reset
+            svg.call(zoom.transform, svg.node().__initialTransform);
+
+
+
+            return () => {
+                tooltip.remove();
+            };
+        }
+
+        function zoomAction(type) {
+            const svg = d3.select("#graph svg");
+            const zoom = svg.node().__zoom;
+
+            if (!zoom) return;
+
+            const duration = 250;
+            const scale = type === 'in' ? 1.5 : type === 'out' ? 0.667 : 1;
+
+            if (type === 'reset') {
+                svg.transition().duration(duration)
+                    .call(zoom.transform, svg.node().__initialTransform);
+            } else {
+                svg.transition().duration(duration)
+                    .call(zoom.scaleBy, scale);
+            }
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const graphDiv = document.getElementById('graph');
+            if (graphDiv.style.display !== 'none') {
+                const resultData = JSON.parse(localStorage.getItem('lastGraphData'));
+                if (resultData) {
+                    drawTree(resultData);
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>
