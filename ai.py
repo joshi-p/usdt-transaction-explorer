@@ -1,7 +1,7 @@
 import google.generativeai as genai
 import json
 
-API_KEY = "AIzaSyCjGuA76vYJsp20naJ8NqwyO04nhOwScYs"
+API_KEY = [YOUR API KEY]
 
 def google_ai (data):
 
